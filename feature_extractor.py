@@ -286,7 +286,9 @@ class FeatureExtractor:
         received_count = len(self.received_chain)
         
         # Check for unusual chain length
-        unusual_chain_length = received_count > 10 or received_count < 1
+        # Only consider too many hops as unusual - having few hops could be legitimate
+        # especially for locally generated test emails
+        unusual_chain_length = received_count > 10
         
         # Check for inconsistent routing
         inconsistent_routing = self._check_inconsistent_routing()
@@ -388,7 +390,26 @@ class FeatureExtractor:
         sender_domain = self.features.get("sender", {}).get("from_domain", "")
         domain_mismatch = False
         
-        if message_id_domain and sender_domain and message_id_domain != sender_domain:
+        if message_id_domain and sender_domain:
+            # More lenient comparison - check if either domain contains the other
+            # or if they share the same root domain (e.g. mail.company.com vs company.com)
+            if not (message_id_domain in sender_domain or sender_domain in message_id_domain):
+                # Compare root domains (last two parts)
+                try:
+                    msg_id_parts = message_id_domain.split(".")
+                    sender_parts = sender_domain.split(".")
+                    
+                    # Only consider domain mismatch if both have at least 2 parts
+                    # AND their root domains don't match
+                    if (len(msg_id_parts) >= 2 and len(sender_parts) >= 2 and
+                            msg_id_parts[-2:] != sender_parts[-2:]):
+                        domain_mismatch = True
+                except:
+                    # If comparison fails, be conservative
+                    domain_mismatch = False
+            else:
+                domain_mismatch = False
+        else:
             domain_mismatch = True
         
         # Store features
